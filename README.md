@@ -1,4 +1,7 @@
 # Arrasto Satelite
+
+https://christofherdovp.github.io/Arrasto_Satelite/
+
 Simulação de Arrasto Atmosférico em Satélites LEO durante Tempestades Geomagnéticas
 
 🛰️ Simulação de Decaimento Orbital: O Impacto do Sol na TermosferaEste projeto apresenta uma ferramenta interativa para visualizar como as tempestades geomagnéticas afetam a órbita de satélites em regiões de baixa altitude (LEO).Muitas vezes esquecemos que, embora o espaço seja considerado "vácuo", a atmosfera da Terra não acaba abruptamente. Existe uma camada tênue de gases que, sob a influência do Sol, pode se tornar um verdadeiro obstáculo para a navegação espacial.

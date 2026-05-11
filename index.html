@@ -1,0 +1,292 @@
+
+<h2 class="sr-only">Simulação interativa de arrasto atmosférico em satélites durante tempestades geomagnéticas</h2>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: var(--font-sans); }
+.wrap { padding: 1rem 0; }
+.header { margin-bottom: 1rem; }
+.header h3 { font-size: 15px; font-weight: 500; color: var(--color-text-primary); margin-bottom: 4px; }
+.header p { font-size: 12px; color: var(--color-text-secondary); }
+.canvas-wrap { position: relative; border-radius: var(--border-radius-lg); overflow: hidden; border: 0.5px solid var(--color-border-tertiary); }
+canvas { display: block; width: 100%; }
+.controls { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 1rem; }
+.ctrl { background: var(--color-background-secondary); border-radius: var(--border-radius-md); padding: 10px 12px; }
+.ctrl-label { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+.ctrl-name { font-size: 12px; color: var(--color-text-secondary); }
+.ctrl-val { font-size: 13px; font-weight: 500; color: var(--color-text-primary); }
+input[type=range] { width: 100%; }
+.stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 12px; }
+.stat { background: var(--color-background-secondary); border-radius: var(--border-radius-md); padding: 8px 10px; text-align: center; }
+.stat-label { font-size: 10px; color: var(--color-text-secondary); margin-bottom: 2px; }
+.stat-val { font-size: 14px; font-weight: 500; color: var(--color-text-primary); }
+.stat-val.calm { color: #185FA5; }
+.stat-val.storm { color: #A32D2D; }
+.legend { display: flex; gap: 16px; justify-content: center; margin-top: 8px; font-size: 11px; color: var(--color-text-secondary); }
+.leg-item { display: flex; align-items: center; gap: 5px; }
+.leg-dot { width: 10px; height: 10px; border-radius: 50%; }
+.btn-row { display: flex; gap: 8px; margin-top: 10px; }
+button { flex: 1; font-size: 12px; padding: 6px 10px; border-radius: var(--border-radius-md); border: 0.5px solid var(--color-border-secondary); background: var(--color-background-primary); color: var(--color-text-primary); cursor: pointer; transition: background 0.15s; }
+button:hover { background: var(--color-background-secondary); }
+button.active { background: var(--color-background-info); color: var(--color-text-info); border-color: var(--color-border-info); }
+.info-row { margin-top: 8px; font-size: 11px; color: var(--color-text-secondary); background: var(--color-background-secondary); border-radius: var(--border-radius-md); padding: 8px 10px; line-height: 1.6; }
+</style>
+
+<div class="wrap">
+  <div class="header">
+    <h3>Arrasto Atmosférico em Satélites LEO</h3>
+    <p>Comparação entre condições calmas (azul) e tempestade geomagnética (vermelho). Ambos partem da mesma altitude — observe o decaimento diferencial.</p>
+  </div>
+  <div class="canvas-wrap">
+    <canvas id="c" width="680" height="380"></canvas>
+  </div>
+  <div class="legend">
+    <div class="leg-item"><div class="leg-dot" style="background:#185FA5"></div> Satélite — condições calmas (Kp = 1)</div>
+    <div class="leg-item"><div class="leg-dot" style="background:#A32D2D"></div> Satélite — tempestade (Kp ajustável)</div>
+    <div class="leg-item"><div class="leg-dot" style="background:#888; width:6px; height:6px; border-radius:50%"></div> Partículas neutras</div>
+  </div>
+  <div class="stats">
+    <div class="stat"><div class="stat-label">Altitude calma</div><div class="stat-val calm" id="altC">250 km</div></div>
+    <div class="stat"><div class="stat-label">Altitude tempestade</div><div class="stat-val storm" id="altS">250 km</div></div>
+    <div class="stat"><div class="stat-label">Densidade relativa ρ</div><div class="stat-val storm" id="rhoRatio">—</div></div>
+    <div class="stat"><div class="stat-label">Δ altitude acumulada</div><div class="stat-val storm" id="deltaAlt">0 km</div></div>
+  </div>
+  <div class="controls">
+    <div class="ctrl">
+      <div class="ctrl-label"><span class="ctrl-name">Intensidade Kp (tempestade)</span><span class="ctrl-val" id="kpVal">5</span></div>
+      <input type="range" id="kp" min="1" max="9" step="1" value="5">
+    </div>
+    <div class="ctrl">
+      <div class="ctrl-label"><span class="ctrl-name">Tipo de satélite</span><span class="ctrl-val" id="satVal">CubeSat</span></div>
+      <input type="range" id="sat" min="1" max="3" step="1" value="1">
+    </div>
+    <div class="ctrl">
+      <div class="ctrl-label"><span class="ctrl-name">Altitude inicial</span><span class="ctrl-val" id="altVal">250 km</span></div>
+      <input type="range" id="alt" min="200" max="400" step="10" value="250">
+    </div>
+    <div class="ctrl">
+      <div class="ctrl-label"><span class="ctrl-name">Velocidade simulação</span><span class="ctrl-val" id="speedVal">1×</span></div>
+      <input type="range" id="speed" min="1" max="4" step="1" value="1">
+    </div>
+  </div>
+  <div class="btn-row">
+    <button id="btnReset">↺ Reiniciar</button>
+    <button id="btnPause">⏸ Pausar</button>
+    <button id="btnShow" class="active">Mostrar trajetória</button>
+  </div>
+  <div class="info-row" id="infoRow">—</div>
+</div>
+
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const W = 680, H = 380;
+canvas.width = W; canvas.height = H;
+
+const SAT_TYPES = ['CubeSat', 'Médio', 'Grande'];
+const SAT_AM = [6.0, 0.5, 0.1];
+const SAT_SIZE = [8, 12, 18];
+
+let kp=5, satType=0, altInit=250, simSpeed=1, paused=false, showTrail=true;
+let frame=0;
+let sC={}, sS={};
+let trailC=[], trailS=[];
+let particles=[];
+
+const ORBIT_Y_BASE = H * 0.5;
+const ALT_SCALE = H / 400;
+
+function rho_calm(alt) { return Math.exp(-(alt-200)/60); }
+function rho_storm(alt, kp) {
+  return rho_calm(alt) * (1 + (kp/9)*(kp/9)*3.5);
+}
+
+function decay_calm(alt, am) { return rho_storm(alt, 1) * am * 0.018 * simSpeed; }
+function decay_storm(alt, am) { return rho_storm(alt, kp) * am * 0.018 * simSpeed; }
+
+function resetSats() {
+  const y0 = ORBIT_Y_BASE - (altInit-300)*ALT_SCALE;
+  sC = {x:80, y:y0, alt:altInit, decayTotal:0};
+  sS = {x:80, y:y0, alt:altInit, decayTotal:0};
+  trailC=[]; trailS=[]; frame=0;
+  updateParticles();
+}
+
+function updateParticles() {
+  particles=[];
+  const nCalm=25, nStorm=Math.round(25+(kp/9)*75);
+  for(let i=0;i<nCalm;i++) particles.push({
+    x:Math.random()*W, y:Math.random()*(H*0.48),
+    vx:-(0.3+Math.random()*0.4), vy:(Math.random()-0.5)*0.3,
+    r:1.5+Math.random(), region:'calm', alpha:0.35+Math.random()*0.25
+  });
+  for(let i=0;i<nStorm;i++) {
+    const sf=Math.sqrt((700+(kp/9)*1200)/700);
+    particles.push({
+      x:Math.random()*W, y:H*0.52+Math.random()*(H*0.48),
+      vx:-(0.5+Math.random()*sf*0.8), vy:(Math.random()-0.5)*0.5*sf,
+      r:1.2+Math.random()*1.2, region:'storm', alpha:0.25+Math.random()*0.4
+    });
+  }
+}
+
+function kpColor(k) {
+  if(k<=3)return'#2ca02c'; if(k<=4)return'#8fbc00';
+  if(k<=5)return'#d4b400'; if(k<=6)return'#ff7f0e';
+  return'#d62728';
+}
+
+function draw() {
+  ctx.clearRect(0,0,W,H);
+  const dk=window.matchMedia('(prefers-color-scheme:dark)').matches;
+  ctx.fillStyle=dk?'#0a1520':'#e6f1fb'; ctx.fillRect(0,0,W,H/2);
+  ctx.fillStyle=dk?'#1a0a0a':'#fcebeb'; ctx.fillRect(0,H/2,W,H/2);
+
+  ctx.font='11px Arial';
+  ctx.fillStyle=dk?'rgba(150,200,255,0.6)':'rgba(24,95,165,0.7)';
+  ctx.fillText('Termosfera calma — baixa densidade',8,16);
+  ctx.fillStyle=dk?'rgba(255,150,150,0.6)':'rgba(163,45,45,0.7)';
+  ctx.fillText(`Termosfera perturbada — Kp = ${kp} — densidade ×${(rho_storm(altInit,kp)/rho_calm(altInit)).toFixed(1)}`,8,H/2+16);
+
+  ctx.strokeStyle=dk?'rgba(255,255,255,0.12)':'rgba(0,0,0,0.12)';
+  ctx.setLineDash([6,4]); ctx.lineWidth=0.8;
+  ctx.beginPath(); ctx.moveTo(0,H/2); ctx.lineTo(W,H/2); ctx.stroke();
+  ctx.setLineDash([]);
+
+  for(const a of[200,250,300,350,400]){
+    const y=ORBIT_Y_BASE-(a-300)*ALT_SCALE;
+    if(y<0||y>H)continue;
+    ctx.strokeStyle=dk?'rgba(255,255,255,0.06)':'rgba(0,0,0,0.06)';
+    ctx.setLineDash([3,5]); ctx.lineWidth=0.5;
+    ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.font='10px Arial';
+    ctx.fillStyle=dk?'rgba(255,255,255,0.3)':'rgba(0,0,0,0.25)';
+    ctx.fillText(`${a} km`,W-46,y-2);
+  }
+
+  for(const p of particles){
+    const hue=p.region==='calm'?'180,200,255':`255,${Math.max(80,180-kp*10)},80`;
+    ctx.fillStyle=`rgba(${hue},${p.alpha})`;
+    ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,Math.PI*2); ctx.fill();
+    p.x+=p.vx*simSpeed; p.y+=p.vy*simSpeed;
+    if(p.x<-4)p.x=W+2; if(p.x>W+4)p.x=-2;
+    if(p.y<0)p.y=H;     if(p.y>H)p.y=0;
+  }
+
+  if(showTrail&&trailC.length>1){
+    ctx.strokeStyle='rgba(24,95,165,0.35)'; ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.moveTo(trailC[0].x,trailC[0].y);
+    for(const pt of trailC) ctx.lineTo(pt.x,pt.y); ctx.stroke();
+  }
+  if(showTrail&&trailS.length>1){
+    ctx.strokeStyle='rgba(163,45,45,0.35)'; ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.moveTo(trailS[0].x,trailS[0].y);
+    for(const pt of trailS) ctx.lineTo(pt.x,pt.y); ctx.stroke();
+  }
+
+  const sz=SAT_SIZE[satType];
+  ctx.fillStyle='#185FA5'; ctx.fillRect(sC.x-sz/2,sC.y-sz/2,sz,sz);
+  ctx.fillStyle='#378ADD';
+  ctx.fillRect(sC.x-sz-6,sC.y-2,6,4); ctx.fillRect(sC.x+sz/2,sC.y-2,6,4);
+
+  ctx.fillStyle='#A32D2D'; ctx.fillRect(sS.x-sz/2,sS.y-sz/2,sz,sz);
+  ctx.fillStyle='#E24B4A';
+  ctx.fillRect(sS.x-sz-6,sS.y-2,6,4); ctx.fillRect(sS.x+sz/2,sS.y-2,6,4);
+
+  // Linha de diferença de altitude
+  if(Math.abs(sC.y-sS.y)>3){
+    const xRef=sC.x-sz/2-14;
+    ctx.strokeStyle='rgba(128,128,128,0.45)';
+    ctx.setLineDash([3,3]); ctx.lineWidth=0.9;
+    ctx.beginPath(); ctx.moveTo(xRef,sC.y); ctx.lineTo(xRef,sS.y); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.beginPath(); ctx.moveTo(xRef-4,sC.y); ctx.lineTo(xRef+4,sC.y); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(xRef-4,sS.y); ctx.lineTo(xRef+4,sS.y); ctx.stroke();
+    const diff=(sS.decayTotal-sC.decayTotal).toFixed(1);
+    if(parseFloat(diff)>0){
+      ctx.fillStyle=dk?'rgba(255,255,255,0.7)':'rgba(60,60,60,0.85)';
+      ctx.font='bold 10px Arial';
+      ctx.fillText(`Δ ${diff} km`,xRef-38,(sC.y+sS.y)/2+4);
+    }
+  }
+}
+
+function updatePhysics() {
+  if(paused) return;
+  for(let s=0;s<simSpeed;s++){
+    sC.x+=1.4; sS.x+=1.4;
+    const am=SAT_AM[satType];
+    const dC=decay_calm(sC.alt,am);
+    const dS=decay_storm(sS.alt,am);
+    sC.alt-=dC; sS.alt-=dS;
+    sC.decayTotal+=dC; sS.decayTotal+=dS;
+    sC.y=ORBIT_Y_BASE-(sC.alt-300)*ALT_SCALE;
+    sS.y=ORBIT_Y_BASE-(sS.alt-300)*ALT_SCALE;
+    if(showTrail&&frame%3===0){
+      trailC.push({x:sC.x,y:sC.y}); trailS.push({x:sS.x,y:sS.y});
+      if(trailC.length>200){trailC.shift();trailS.shift();}
+    }
+    frame++;
+    if(sC.x>W-20||sS.alt<180||sC.alt<180){
+      sC.x=80;sS.x=80;
+      sC.alt=altInit;sS.alt=altInit;
+      sC.y=sS.y=ORBIT_Y_BASE-(altInit-300)*ALT_SCALE;
+      sC.decayTotal=0;sS.decayTotal=0;
+      trailC=[];trailS=[];
+    }
+  }
+
+  // Cards — apenas valores com significado claro
+  const ratio=(rho_storm(sS.alt,kp)/rho_calm(sC.alt)).toFixed(1);
+  const pct=Math.round((rho_storm(altInit,kp)/rho_calm(altInit)-1)*100);
+  const delta=(sS.decayTotal-sC.decayTotal).toFixed(2);
+
+  document.getElementById('altC').textContent=sC.alt.toFixed(1)+' km';
+  document.getElementById('altS').textContent=sS.alt.toFixed(1)+' km';
+  document.getElementById('rhoRatio').textContent=ratio+'× maior';
+  document.getElementById('deltaAlt').textContent=delta+' km';
+
+  // Texto explicativo dinâmico
+  const intensidade=pct>100?'muito acelerado':pct>30?'acelerado':'ligeiramente acelerado';
+  const satNome=SAT_TYPES[satType];
+  document.getElementById('infoRow').textContent=
+    `Kp = ${kp} → densidade termosférica ≈ ${(pct+100)/100}× maior na tempestade → `+
+    `arrasto ${intensidade} sobre o ${satNome} vermelho → `+
+    `diferença acumulada de altitude: ${delta} km (didático — exagero visual para fins de comparação)`;
+}
+
+document.getElementById('kp').oninput=e=>{
+  kp=+e.target.value;
+  document.getElementById('kpVal').textContent=kp;
+  document.getElementById('kpVal').style.color=kpColor(kp);
+  updateParticles();
+};
+document.getElementById('sat').oninput=e=>{
+  satType=+e.target.value-1;
+  document.getElementById('satVal').textContent=SAT_TYPES[satType];
+};
+document.getElementById('alt').oninput=e=>{
+  altInit=+e.target.value;
+  document.getElementById('altVal').textContent=altInit+' km';
+  resetSats();
+};
+document.getElementById('speed').oninput=e=>{
+  simSpeed=+e.target.value;
+  document.getElementById('speedVal').textContent=simSpeed+'×';
+};
+document.getElementById('btnReset').onclick=()=>resetSats();
+document.getElementById('btnPause').onclick=function(){
+  paused=!paused;
+  this.textContent=paused?'▶ Continuar':'⏸ Pausar';
+  this.classList.toggle('active',paused);
+};
+document.getElementById('btnShow').onclick=function(){
+  showTrail=!showTrail;
+  this.classList.toggle('active',showTrail);
+  if(!showTrail){trailC=[];trailS=[];}
+};
+
+resetSats();
+function loop(){updatePhysics();draw();requestAnimationFrame(loop);}
+loop();
+</script>
